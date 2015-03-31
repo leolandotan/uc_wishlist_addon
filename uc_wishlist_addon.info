@@ -1,0 +1,4 @@
+name = UC Wishlist Addon
+description = This module simple changes the UC Wishlist view page URLs to preferred ones.
+core = 7.x
+dependencies[] = uc_wishlist
