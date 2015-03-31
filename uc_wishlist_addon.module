@@ -164,7 +164,7 @@ function uc_wishlist_addon_uc_wishlist_view_form_submit($form, &$form_state) {
 
       uc_wishlist_update_item_object((object) $form_state['values']);
 
-      drupal_set_message(t('Leo: Your wish list has been updated.'));
+      drupal_set_message(t('Your wish list has been updated.'));
 
       $form_state['redirect'] = 'my-wishlist';
     }
