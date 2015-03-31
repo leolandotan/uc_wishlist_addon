@@ -102,7 +102,7 @@ function uc_wishlist_addon_uc_wishlist_display($wid = NULL, $mode = 'wid') {
  */
 function uc_wishlist_addon_uc_wishlist_blank_table() {
   $header = array(t('Products'), t('Redeem'), t('Remove'));
-  $row = array(
+  $rows = array(
     array(
       'data' => array(
         array(
