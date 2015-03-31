@@ -189,7 +189,7 @@ function uc_wishlist_addon_uc_wishlist_view_form_submit($form, &$form_state) {
         }
       }
 
-      uc_wishlist_addon_uc_wishlist_add_items_to_cart((object) $form_state['values']);
+      uc_wishlist_add_items_to_cart((object) $form_state['values']);
       drupal_set_message(t('The item(s) have been added to your shopping cart.'));
 
       $form_state['redirect'] = 'cart';
