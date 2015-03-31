@@ -336,9 +336,9 @@ function uc_wishlist_addon_module_implements_alter(&$implementations, $hook) {
   if ($hook == 'form_alter') {
     // Make this module have higher weight than uc_wishlist in order for
     // alterations to be done.
-    $group = $implementations['leo'];
-    unset($implementations['leo']);
-    $implementations['leo'] = $group;
+    $group = $implementations['uc_wishlist_addon'];
+    unset($implementations['uc_wishlist_addon']);
+    $implementations['uc_wishlist_addon'] = $group;
   }
   if ($hook == 'user_login') {
     // Remove uc_wishlist's hook to user_login to change uc_wishlist_add_item.
