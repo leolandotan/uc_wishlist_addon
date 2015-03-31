@@ -119,3 +119,266 @@ function uc_wishlist_addon_uc_wishlist_blank_table() {
 
   return $output;
 }
+
+/**
+ * Implements hook_form_alter().
+ */
+function uc_wishlist_addon_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'uc_wishlist_view_form') {
+    // This is used to update uc wishlist's view page submit to update the 
+    // wishlist link to my-wishlist.
+    unset($form['#submit']);
+    $form['#submit'][] = 'uc_wishlist_addon_uc_wishlist_view_form_submit';
+  }
+
+  if ((strpos($form_id, 'uc_product_add_to_cart_form_') === 0) ||
+      (strpos($form_id, 'uc_product_kit_add_to_cart_form_') === 0)) {
+
+    // This is used to update the submit callback of Add to Wishlist button 
+    // to update the uc_wishlist_add_item function.
+    unset($form['actions']['wishlist']['#submit']);
+    $form['actions']['wishlist']['#submit'] = array('uc_wishlist_addon_uc_wishlist_add_to_wishlist_submit');
+  }
+}
+
+/**
+ * Submit callback for the Add to Wishlist button
+ */
+function uc_wishlist_addon_uc_wishlist_add_to_wishlist_submit($form, &$form_state) {
+  uc_wishlist_addon_uc_wishlist_add_item(
+    $form_state['values']['nid'],
+    $form_state['values']['qty'],
+    module_invoke_all('uc_add_to_cart_data', $form_state['values'])
+  );
+}
+
+/**
+ * Submit callback for the Wishlist Update button
+ */
+function uc_wishlist_addon_uc_wishlist_view_form_submit($form, &$form_state) {
+  module_load_include('module', 'uc_wishlist');
+  global $user;
+
+  if (isset($form_state['values']['op']) && !empty($form_state['values']['op'])) {
+    if ($form_state['values']['op'] == $form_state['values']['update']) {
+
+      uc_wishlist_update_item_object((object) $form_state['values']);
+
+      drupal_set_message(t('Leo: Your wish list has been updated.'));
+
+      $form_state['redirect'] = 'my-wishlist';
+    }
+  }
+  else {
+    // Find wish list item associated with 'add to cart' submitted.
+    foreach ($form_state['values'] as $key => $val) {
+      if (strpos($key, 'addcart-') === 0) {
+        $wpid = intval(substr($key, 8));
+      }
+    }
+
+    if ($wpid) {
+      foreach ($form_state['values']['items'] as $key => $item) {
+        if ($item['wpid'] == $wpid) {
+          if ($item['qty'] == 0) {
+            $form_state['values']['items'][$key]['qty'] = 1;
+          }
+        }
+        else {
+          $form_state['values']['items'][$key]['qty'] = 0;
+        }
+      }
+
+      uc_wishlist_addon_uc_wishlist_add_items_to_cart((object) $form_state['values']);
+      drupal_set_message(t('The item(s) have been added to your shopping cart.'));
+
+      $form_state['redirect'] = 'cart';
+    }
+  }
+}
+
+/**
+ * Adds an item to a user's wish list.
+ *
+ * This function is updated from uc_wishlist for the wishlist to my-wishlist
+ */
+function uc_wishlist_addon_uc_wishlist_add_item($nid, $qty = 1, $data = NULL, $wid = NULL, $msg = TRUE, $check_redirect = TRUE) {
+  module_load_include('module', 'uc_wishlist');
+
+  $wid = $wid ? $wid : uc_wishlist_get_wid();
+  $created = FALSE;
+
+  if (!$wid || $wid === NULL) {
+    $wid = uc_wishlist_create_wishlist();
+
+    if (!$wid) {
+      drupal_set_message(t('Could not create wish list. Adding item failed.'), 'error');
+      return FALSE;
+    }
+    $created = TRUE;
+  }
+
+  $node = node_load($nid);
+
+  // Adding data variables.
+  if (empty($data)) {
+    $data = array('module' => 'uc_product');
+  }
+  elseif (!array_key_exists('module', $data)) {
+    $data['module'] = 'uc_product';
+  }
+
+  // If Product Kit is enable, then add products into data array.
+
+  if (module_exists('uc_product_kit') && $node->type == 'product_kit') {
+
+    // Adding products of the product kit into data object.
+    $products = $node->products;
+
+    foreach ($products as $pid => $product) {
+
+      $data['products'][$pid]['nid'] = $pid;
+      $data['products'][$pid]['qty'] = $product->qty;
+
+      // Creating attributes array.
+      $attributes = array();
+
+      // Getting attributes list of the product.
+      $product_attributes = $product->attributes;
+
+      // Iterating through the attributes list.
+      foreach ($product_attributes as $aid => $product_attribute) {
+        $attribute[$product_attribute->aid] = $product_attribute->default_option;
+      }
+
+      // Assigning attributes to data array.
+      $data['products'][$pid]['attributes'] = $attributes;
+    }
+  }
+
+  // If product kit module is install in the site, then we need to check if the
+  // product is product kit or product.
+  if (module_exists('uc_product_kit')) {
+    $supported_node_types = array_merge(array_keys(uc_product_node_info()), array_keys(uc_product_kit_node_info()));
+  }
+  else {
+    $supported_node_types = array_keys(uc_product_node_info());
+  }
+
+  // Checking if the node is product type or product kit type.
+
+  if (!in_array($node->type, $supported_node_types)) {
+    drupal_set_message(t('@title is not a product. Unable to add to wish list.', array('@title' => $node->title)), 'error');
+    return;
+  }
+
+  $result = module_invoke_all('add_to_cart', $nid, $qty, $data);
+  if (is_array($result) && !empty($result)) {
+    foreach ($result as $row) {
+      if ($row['success'] === FALSE) {
+        if (isset($row['message']) && !empty($row['message'])) {
+          $message = $row['message'];
+        }
+        else {
+          $message = t('Sorry, that item is not available for purchase at this time.');
+        }
+        drupal_set_message(filter_xss($message), 'error');
+        return;
+      }
+    }
+  }
+
+  $result = db_query("SELECT * FROM {uc_wishlist_products} WHERE wid = :wid AND nid = :nid AND data = :data", array(':wid' => $wid, ':nid' => $nid, ':data' => serialize($data)));
+  $item = $result->fetchObject();
+
+  // If the item isn't in the cart yet, add it.
+  if (is_null($item) || $item === FALSE) {
+    $id = db_insert('uc_wishlist_products')
+    ->fields(array(
+          'wid' => $wid,
+          'nid' => $nid,
+          'qty' => $qty,
+          'changed' => REQUEST_TIME,
+          'data' => serialize($data),
+          'purchase' => '',
+    ))
+    ->execute();
+    if ($msg) {
+      drupal_set_message(t('<b>@product-title</b> added to <a href="!url">your wish list</a>.', array('@product-title' => filter_xss($node->title), '!url' => url('my-wishlist'))));
+    }
+  }
+  else {
+    // Update the item instead.
+    $qty += $item->qty;
+    $wpid = $item->wpid;
+
+    uc_product_update_wishlist_item($nid, $data, min($qty, 999999), $wid, $wpid);
+
+    if ($msg) {
+      drupal_set_message(filter_xss(t('Your <a href="!url">wish list</a> has been updated.', array('!url' => url('my-wishlist')))));
+    }
+  }
+
+  if ($check_redirect) {
+    if (isset($_GET['destination'])) {
+      drupal_goto();
+    }
+  }
+  if ($created) {
+    drupal_goto('my-wishlist');
+  }
+}
+
+/**
+ * Implements hook_module_implements_alter().
+ */
+function uc_wishlist_addon_module_implements_alter(&$implementations, $hook) {
+  if ($hook == 'form_alter') {
+    // Make this module have higher weight than uc_wishlist in order for
+    // alterations to be done.
+    $group = $implementations['leo'];
+    unset($implementations['leo']);
+    $implementations['leo'] = $group;
+  }
+  if ($hook == 'user_login') {
+    // Remove uc_wishlist's hook to user_login to change uc_wishlist_add_item.
+    $module_name = 'uc_wishlist';
+    unset($implementations[$module_name]);
+  }
+}
+
+/**
+ * Implements hook_user_login().
+ *
+ * This overrides uc wishlist's hook_user_login to update uc_wishlist_add_item
+ * to uc_wishlist_addon_uc_wishlist_add_item.
+ */
+function uc_wishlist_addon_user_login(&$edit, $account) {
+  module_load_include('module', 'uc_wishlist');
+
+  $saved_id = empty($_SESSION['uc_wishlist_uid']) ? 0 : $_SESSION['uc_wishlist_uid'];
+  $oldwid = db_query("SELECT wid FROM {uc_wishlists} WHERE uid = :uid", array(':uid' => $saved_id))->fetchField();
+  $newwid = uc_wishlist_get_wid();
+  if ($oldwid && $newwid) {
+    $res = db_query("SELECT * FROM {uc_wishlist_products} WHERE wid = :wid", array(':wid' => $oldwid));
+    foreach ($res as $obj) {
+      // NOTE: the delete must precede uc_wishlist_add_item because
+      // it may update the old record but we expect it to insert a new record.
+      db_delete('uc_wishlist_products')
+      ->condition('wpid', $obj->wpid)
+      ->execute();
+      uc_wishlist_addon_uc_wishlist_add_item($obj->nid, $obj->qty, unserialize($obj->data), $newwid);
+    }
+    db_delete('uc_wishlists')
+    ->condition('wid', $oldwid)
+    ->execute();
+  }
+  elseif ($oldwid && !$newwid) {
+    db_update('uc_wishlists')
+    ->fields(array(
+      'uid' => $account->uid,
+    ))
+    ->condition('wid', $oldwid)
+    ->execute();
+  }
+}
