@@ -1,1 +1,121 @@
 <?php
+
+/**
+ * Implements hook_menu_alter().
+ */
+function uc_wishlist_addon_menu_alter(&$items) {
+  // Update uc wishlist list page to my-wishlist.
+  $items['my-wishlist'] = $items['wishlist'];
+  $items['my-wishlist']['page callback'] = 'uc_wishlist_addon_uc_wishlist_display';
+  
+  // Unset the old wishlist item.
+  unset($items['wishlist']);
+
+  // Unset the file key w/c is not used since the function is in the same file.
+  unset($items['my-wishlist']['file']);
+}
+
+/**
+ * Updates uc wishlist's display function to add empty markup.
+ */
+function uc_wishlist_addon_uc_wishlist_display($wid = NULL, $mode = 'wid') {
+  module_load_include('module', 'uc_wishlist');
+  module_load_include('inc', 'uc_wishlist', 'uc_wishlist.pages');
+
+  global $user;
+  $output = '';
+  $own = FALSE;
+
+  if (empty($wid)) {
+    // Default to the current user's wish list if no wishlist ID is specified.
+    $wid = uc_wishlist_get_wid();
+    $own = TRUE;
+  }
+  elseif (is_object($wid)) {
+    // $wid is actually a user account.
+    $wid = uc_wishlist_get_wid($wid->uid);
+  }
+
+  if (!$own && $wid == uc_wishlist_get_wid()) {
+    $own = TRUE;
+  }
+
+  // Attempt to load the wish list.
+  $wishlist = uc_wishlist_load($wid);
+
+  // Handle a non-existent wish list.
+  if (!$wishlist) {
+    // If the requested list was for the current user...
+    if ($own) {
+      // Display a message letting them know their list is empty.
+      drupal_set_title(t('Wish list'));
+      drupal_set_message(t("You have not added any products to your wish list. You can add any product from the store to your wish list by clicking the 'Add to wish list' button on the product's page."));
+
+      return uc_wishlist_addon_uc_wishlist_blank_table();
+    }
+    else {
+      // Otherwise send them to the search form.
+      drupal_set_message(t('The wish list you requested could not be found.  Perhaps you can try looking for it through the wish list search form below.'));
+      drupal_goto('wishlist/search');
+    }
+  }
+  // Display only if it's my own or it's not private.
+  if (!$wishlist->private || $own) {
+    drupal_set_title($wishlist->title);
+
+    // Add the settings form if the user is viewing his own wish list.
+    if ($own) {
+      if (!$user->uid) {
+        drupal_set_message(filter_xss(t('You must <a href="!login_url">login</a> or <a href="!register_url">register</a> to save your wish list.', array('!login_url' => url('user/login'), '!register_url' => url('user/register')))));
+      }
+
+      $collapsed = TRUE;
+    }
+
+    // Add expiration information to the display.
+    if ($wishlist->expiration < REQUEST_TIME) {
+      $output .= '<p>' . t('This wish list may no longer be valid. It was for an event on @date.', array('@date' => format_date($wishlist->expiration))) . '</p>';
+    }
+    elseif ($wishlist->expiration > 0) {
+      $output .= '<p>' . t('This wish list is valid until @date.', array('@date' => format_date($wishlist->expiration))) . '</p>';
+    }
+
+    $items = uc_wishlist_get_contents($wid);
+
+    if (empty($items)) {
+      return uc_wishlist_addon_uc_wishlist_blank_table();
+    }
+
+    $form = drupal_get_form('uc_wishlist_view_form', $items, $wid, $own);
+    $output .= drupal_render($form);
+  }
+  else {
+    drupal_goto('wishlist/search');
+  }
+  return $output;
+}
+
+/**
+ * Helper function.
+ *
+ * Returns the empty table for uc wishlist's wishlist view page.
+ */
+function uc_wishlist_addon_uc_wishlist_blank_table() {
+  $header = array(t('Products'), t('Redeem'), t('Remove'));
+  $row = array(
+    array(
+      'data' => array(
+        array(
+          'data' => t('There are no products on this wish list.'),
+          'colspan' => 3
+        ),
+      ),
+    )
+  );
+
+  $output = '<div id="uc-wishlist-view-form-empty" class="empty-container">';
+  $output .= theme('table', array('header' => $header, 'rows' => $rows));
+  $output .= '</div>';
+
+  return $output;
+}
